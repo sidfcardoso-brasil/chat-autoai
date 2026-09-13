@@ -1,54 +1,67 @@
-/**
- * Store em memória para armazenar respostas pendentes do n8n
- * Key: `${sessionId}-${messageId}`
- * Value: resposta do n8n
- */
-const responseStore = new Map<string, { response: string; timestamp: Date }>();
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-/**
- * Armazena uma resposta do n8n
- */
-export function storeResponse(sessionId: string, messageId: string, response: string): void {
-  const key = `${sessionId}-${messageId}`;
-  responseStore.set(key, {
-    response,
-    timestamp: new Date(),
+type ChatResponseRow = {
+  session_id: string;
+  message_id: string;
+  response: string;
+};
+
+let supabase: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient {
+  if (supabase) return supabase;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios');
+  }
+
+  supabase = createClient(url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  return supabase;
 }
 
-/**
- * Recupera e remove uma resposta do store
- */
-export function getAndRemoveResponse(
+export async function storeResponse(
+  sessionId: string,
+  messageId: string,
+  response: string
+): Promise<void> {
+  const { error } = await getSupabase()
+    .from('chat_responses')
+    .upsert(
+      { session_id: sessionId, message_id: messageId, response },
+      { onConflict: 'session_id,message_id' }
+    );
+
+  if (error) throw new Error(`Erro ao salvar resposta: ${error.message}`);
+}
+
+export async function getAndRemoveResponse(
   sessionId: string,
   messageId: string
-): string | null {
-  const key = `${sessionId}-${messageId}`;
-  const stored = responseStore.get(key);
-  if (stored) {
-    responseStore.delete(key);
-    return stored.response;
-  }
-  return null;
+): Promise<string | null> {
+  const { data, error } = await getSupabase()
+    .from('chat_responses')
+    .delete()
+    .eq('session_id', sessionId)
+    .eq('message_id', messageId)
+    .select('response')
+    .maybeSingle<Pick<ChatResponseRow, 'response'>>();
+
+  if (error) throw new Error(`Erro ao recuperar resposta: ${error.message}`);
+  return data?.response ?? null;
 }
 
-/**
- * Verifica se existe resposta pendente
- */
-export function hasResponse(sessionId: string, messageId: string): boolean {
-  const key = `${sessionId}-${messageId}`;
-  return responseStore.has(key);
-}
+export async function cleanOldResponses(): Promise<void> {
+  const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { error } = await getSupabase()
+    .from('chat_responses')
+    .delete()
+    .lt('created_at', cutoff);
 
-/**
- * Limpa respostas antigas (mais de 1 hora)
- */
-export function cleanOldResponses(): void {
-  const oneHourAgo = Date.now() - 60 * 60 * 1000;
-  for (const [key, value] of responseStore.entries()) {
-    if (value.timestamp.getTime() < oneHourAgo) {
-      responseStore.delete(key);
-    }
-  }
+  if (error) throw new Error(`Erro ao limpar respostas: ${error.message}`);
 }
-
