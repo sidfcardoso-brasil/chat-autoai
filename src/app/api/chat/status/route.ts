@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAndRemoveResponse, hasResponse } from '@/lib/api/response-store';
+import { getAndRemoveResponse } from '@/lib/api/response-store';
 import type { ChatStatusResponse } from '@/lib/types/chat';
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -36,9 +36,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ hasResponse: false, error: 'Não autorizado' }, { status: 401 });
     }
 
-    if (hasResponse(sessionId, lastMessageId)) {
-      const response = getAndRemoveResponse(sessionId, lastMessageId);
-      return NextResponse.json<ChatStatusResponse>({ hasResponse: true, response: response || '', messageId: lastMessageId });
+    const response = await getAndRemoveResponse(sessionId, lastMessageId);
+
+    if (response !== null) {
+      return NextResponse.json<ChatStatusResponse>({ hasResponse: true, response, messageId: lastMessageId });
     }
 
     return NextResponse.json<ChatStatusResponse>({ hasResponse: false });
