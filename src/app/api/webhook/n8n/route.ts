@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'messageId é obrigatório' }, { status: 400 });
     }
 
-    storeResponse(sessionId, messageId, response);
-    cleanOldResponses();
+    await storeResponse(sessionId, messageId, response);
+    await cleanOldResponses();
 
     return NextResponse.json({ success: true });
   } catch (error) {
